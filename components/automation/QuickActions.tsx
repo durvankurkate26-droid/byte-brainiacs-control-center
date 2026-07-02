@@ -7,14 +7,17 @@ interface ActionCardProps {
   title: string;
   description: string;
   status: StatusType;
+  /** Internal route or in-page anchor. Omitted for "Coming Soon" cards. */
+  href?: string;
 }
 
-function ActionCard({ icon, title, description, status }: ActionCardProps) {
+function ActionCard({ icon, title, description, status, href }: ActionCardProps) {
   const isReady = status === "Ready";
-  return (
+
+  const inner = (
     <div
       className={[
-        "flex flex-col gap-3 rounded border p-5 transition-all duration-150",
+        "flex h-full flex-col gap-3 rounded-lg border p-5 transition-all duration-150",
         isReady
           ? "border-lilac/30 bg-lilac/[0.03] hover:border-lilac/60 hover:bg-lilac/5 cursor-pointer"
           : "border-mist/15 bg-mist/[0.02] cursor-default opacity-60",
@@ -30,9 +33,7 @@ function ActionCard({ icon, title, description, status }: ActionCardProps) {
         </div>
         <span
           className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-wider font-medium ${
-            isReady
-              ? "bg-magenta/15 text-magenta"
-              : "bg-mist/10 text-mist"
+            isReady ? "bg-magenta/15 text-magenta" : "bg-mist/10 text-mist"
           }`}
         >
           {status}
@@ -45,21 +46,32 @@ function ActionCard({ icon, title, description, status }: ActionCardProps) {
       </div>
     </div>
   );
+
+  if (isReady && href) {
+    return (
+      <a href={href} className="block h-full">
+        {inner}
+      </a>
+    );
+  }
+  return inner;
 }
 
 const ACTIONS: ActionCardProps[] = [
   {
     icon: "⬡",
     title: "Generate QR Codes",
-    description: "Generate QR cards for every team found in the uploaded CSV.",
+    description: "Generate QR cards for every team in the participant database.",
     status: "Ready",
+    href: "/generate",
   },
   {
     icon: "@",
     title: "Send Emails",
     description:
-      "Send personalized registration emails using the uploaded participant list.",
+      "Send personalized registration emails using the imported participant list.",
     status: "Ready",
+    href: "#email-composer",
   },
   {
     icon: "✆",
@@ -70,8 +82,9 @@ const ACTIONS: ActionCardProps[] = [
   {
     icon: "◈",
     title: "Attendance",
-    description: "Open QR Scanner and mark attendance.",
+    description: "Open the QR scanner and mark team attendance.",
     status: "Ready",
+    href: "/checkin",
   },
 ];
 

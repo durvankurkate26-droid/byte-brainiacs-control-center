@@ -48,6 +48,8 @@ export interface ImportResponseBody {
   invalidEmails: number;
   /** Duplicate email rows in the same file that collapsed into one on upsert. */
   duplicates: number;
+  /** Teams upserted into public.teams from the imported participants. */
+  teamsSynced: number;
   /** Present only on failure. */
   error?: string;
 }

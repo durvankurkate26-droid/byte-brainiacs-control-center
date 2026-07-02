@@ -38,6 +38,20 @@ export type ParticipantInsert = Omit<
   "id" | "created_at" | "updated_at"
 >;
 
+// Identity-only shape used to sync public.teams from imported participants.
+// Deliberately excludes attendance and checkin_time: the import upsert must
+// NOT overwrite a team's existing attendance state. Postgres ON CONFLICT DO
+// UPDATE only touches the supplied columns, so omitting these preserves any
+// prior check-in while new teams fall back to the column defaults
+// (attendance = false, checkin_time = NULL).
+export type TeamSyncRow = {
+  team_id: string;
+  team_name: string;
+  participant_1: string;
+  participant_2: string | null;
+  participant_3: string | null;
+};
+
 // Minimal Supabase Database type so the client gets typed query results.
 // The empty Views/Functions/Enums/CompositeTypes keys are required for the
 // schema to satisfy supabase-js's GenericSchema constraint — without them
@@ -46,8 +60,12 @@ export interface Database {
   public: {
     Tables: {
       teams: {
+        // attendance/checkin_time are optional on insert so the import route
+        // can upsert identity-only rows (TeamSyncRow) without clobbering a
+        // team's existing attendance. New rows use the DB column defaults.
         Row: Team;
-        Insert: Omit<Team, "created_at">;
+        Insert: Omit<Team, "created_at" | "attendance" | "checkin_time"> &
+          Partial<Pick<Team, "attendance" | "checkin_time">>;
         Update: Partial<Team>;
         Relationships: [];
       };

@@ -9,22 +9,55 @@ interface ParticipantTableProps {
 
 const PAGE_SIZE = 25;
 
+/** Distinct, sorted, non-empty values of a field across the rows. */
+function distinctValues(
+  rows: ParticipantRow[],
+  pick: (r: ParticipantRow) => string
+): string[] {
+  const set = new Set<string>();
+  for (const r of rows) {
+    const v = pick(r).trim();
+    if (v) set.add(v);
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
 export default function ParticipantTable({ rows }: ParticipantTableProps) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [college, setCollege] = useState("");
+  const [registrationType, setRegistrationType] = useState("");
+  const [validEmailOnly, setValidEmailOnly] = useState(false);
 
-  // Filter by search across team number, name, email, college
+  // Filter option lists derived from the full dataset (not the filtered view),
+  // so a selection never hides the other options.
+  const collegeOptions = useMemo(
+    () => distinctValues(rows, (r) => r.college),
+    [rows]
+  );
+  const registrationTypeOptions = useMemo(
+    () => distinctValues(rows, (r) => r.registrationType),
+    [rows]
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) =>
-        r.teamNumber.toLowerCase().includes(q) ||
-        r.participant.toLowerCase().includes(q) ||
-        r.email.toLowerCase().includes(q) ||
-        r.college.toLowerCase().includes(q)
-    );
-  }, [rows, search]);
+    return rows.filter((r) => {
+      if (q) {
+        const matches =
+          r.teamNumber.toLowerCase().includes(q) ||
+          r.participant.toLowerCase().includes(q) ||
+          r.email.toLowerCase().includes(q) ||
+          r.college.toLowerCase().includes(q);
+        if (!matches) return false;
+      }
+      if (college && r.college !== college) return false;
+      if (registrationType && r.registrationType !== registrationType)
+        return false;
+      if (validEmailOnly && !r.emailValid) return false;
+      return true;
+    });
+  }, [rows, search, college, registrationType, validEmailOnly]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -33,16 +66,29 @@ export default function ParticipantTable({ rows }: ParticipantTableProps) {
     safePage * PAGE_SIZE
   );
 
-  // Reset to page 1 when search changes
-  const handleSearch = (v: string) => {
-    setSearch(v);
+  // Reset to page 1 whenever any filter changes.
+  const resetPage = () => setPage(1);
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    college !== "" ||
+    registrationType !== "" ||
+    validEmailOnly;
+
+  const clearFilters = () => {
+    setSearch("");
+    setCollege("");
+    setRegistrationType("");
+    setValidEmailOnly(false);
     setPage(1);
   };
+
+  const selectClass =
+    "rounded border border-lilac/30 bg-lilac/5 px-3 py-1.5 text-xs text-haze outline-none focus:border-lilac/60";
 
   return (
     <div className="space-y-3">
       {/* Header row */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 className="text-xs uppercase tracking-widest text-mist">
           Participants
           <span className="ml-2 text-lilac">({filtered.length})</span>
@@ -51,9 +97,72 @@ export default function ParticipantTable({ rows }: ParticipantTableProps) {
           type="search"
           placeholder="Search name, team, email…"
           value={search}
-          onChange={(e) => handleSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            resetPage();
+          }}
           className="w-full max-w-xs rounded border border-lilac/30 bg-lilac/5 px-3 py-1.5 text-xs text-haze placeholder-mist/50 outline-none focus:border-lilac/60 focus:ring-0"
         />
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={college}
+          onChange={(e) => {
+            setCollege(e.target.value);
+            resetPage();
+          }}
+          className={selectClass}
+          aria-label="Filter by college"
+        >
+          <option value="">All colleges</option>
+          {collegeOptions.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={registrationType}
+          onChange={(e) => {
+            setRegistrationType(e.target.value);
+            resetPage();
+          }}
+          className={selectClass}
+          aria-label="Filter by registration type"
+        >
+          <option value="">All registration types</option>
+          {registrationTypeOptions.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-mist">
+          <input
+            type="checkbox"
+            checked={validEmailOnly}
+            onChange={(e) => {
+              setValidEmailOnly(e.target.checked);
+              resetPage();
+            }}
+            className="h-3.5 w-3.5 accent-lilac"
+          />
+          Valid email only
+        </label>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-xs uppercase tracking-wider text-lilac hover:underline"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -72,11 +181,8 @@ export default function ParticipantTable({ rows }: ParticipantTableProps) {
           <tbody>
             {paginated.length === 0 ? (
               <tr>
-                <td
-                  colSpan={6}
-                  className="px-4 py-8 text-center text-mist"
-                >
-                  No participants match your search.
+                <td colSpan={6} className="px-4 py-8 text-center text-mist">
+                  No participants match your filters.
                 </td>
               </tr>
             ) : (

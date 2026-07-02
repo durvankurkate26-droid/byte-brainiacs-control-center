@@ -13,6 +13,7 @@ import {
   hasUsableEmail,
   type ImportResponseBody,
 } from "@/lib/participants";
+import { deriveTeams } from "@/lib/teams";
 import type { ParticipantRow } from "@/lib/automationTypes";
 import type { ParticipantInsert } from "@/lib/types";
 
@@ -106,6 +107,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           imported,
           invalidEmails,
           duplicates,
+          teamsSynced: 0,
           error: `Database error after ${imported} row(s): ${error.message}`,
         } satisfies ImportResponseBody,
         { status: 500 }
@@ -114,13 +116,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     imported += data?.length ?? batch.length;
   }
 
-  // 6. Success summary
+  // 6. Sync the teams table from the imported participants so QR check-in and
+  //    the attendance dashboard reflect the current roster. Identity columns
+  //    only — attendance/checkin_time are preserved for existing teams (see
+  //    deriveTeams / TeamSyncRow). A sync failure is reported but does NOT
+  //    discard the successful participant import above.
+  const teamRows = deriveTeams(deduped);
+  let teamsSynced = 0;
+  for (let i = 0; i < teamRows.length; i += BATCH_SIZE) {
+    const batch = teamRows.slice(i, i + BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("teams")
+      .upsert(batch, { onConflict: "team_id" })
+      .select("team_id");
+
+    if (error) {
+      return NextResponse.json(
+        {
+          success: false,
+          total,
+          imported,
+          invalidEmails,
+          duplicates,
+          teamsSynced,
+          error:
+            `Participants imported, but syncing the teams table failed after ` +
+            `${teamsSynced} team(s): ${error.message}`,
+        } satisfies ImportResponseBody,
+        { status: 500 }
+      );
+    }
+    teamsSynced += data?.length ?? batch.length;
+  }
+
+  // 7. Success summary
   const response: ImportResponseBody = {
     success: true,
     total,
     imported,
     invalidEmails,
     duplicates,
+    teamsSynced,
   };
   return NextResponse.json(response, { status: 200 });
 }

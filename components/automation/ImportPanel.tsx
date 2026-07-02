@@ -15,6 +15,8 @@ type ImportState =
 interface ImportPanelProps {
   /** Parsed CSV rows to persist into public.participants. */
   rows: ParticipantRow[];
+  /** Called after a successful import so the dashboard can reload from the DB. */
+  onImported?: () => void;
 }
 
 // ─── Result summary ───────────────────────────────────────────────────────────
@@ -66,9 +68,10 @@ function ImportResult({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         <Stat label="Received" value={result.total} accent="mist" />
         <Stat label="Saved" value={result.imported} accent="lilac" />
+        <Stat label="Teams Synced" value={result.teamsSynced} accent="lilac" />
         <Stat label="Invalid Email" value={result.invalidEmails} accent="magenta" />
         <Stat label="Duplicates" value={result.duplicates} accent="mist" />
       </div>
@@ -95,7 +98,7 @@ function ImportResult({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function ImportPanel({ rows }: ImportPanelProps) {
+export default function ImportPanel({ rows, onImported }: ImportPanelProps) {
   const [state, setState] = useState<ImportState>({ status: "idle" });
 
   const validCount = useMemo(
@@ -131,6 +134,7 @@ export default function ImportPanel({ rows }: ImportPanelProps) {
       }
 
       setState({ status: "done", result: data });
+      onImported?.();
     } catch (err) {
       setState({
         status: "error",
