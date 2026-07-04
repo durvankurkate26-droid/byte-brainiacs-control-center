@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { toParticipantRows } from "@/lib/participantView";
-import type { Participant } from "@/lib/types";
+import type { Participant, Team } from "@/lib/types";
 import type { ParticipantRow, CsvStats } from "@/lib/automationTypes";
 
 // totalTeams and checkedInTeams are both sourced from the teams table so they
@@ -23,10 +23,16 @@ export interface DashboardStats extends Omit<CsvStats, "totalTeams"> {
   totalTeams: number;
   /** Teams whose attendance = true (from the teams table). */
   checkedInTeams: number;
+  /** Participants whose email failed validation (blank counts as invalid). */
+  invalidEmails: number;
+  /** ISO timestamp of the most recent check-in, or null if none yet. */
+  latestCheckIn: string | null;
 }
 
 export interface DashboardData {
   participants: ParticipantRow[];
+  /** Full teams table rows — powers attendance export and analytics. */
+  teams: Team[];
   stats: DashboardStats;
   loading: boolean;
   error: string | null;
@@ -39,24 +45,38 @@ const EMPTY_STATS: DashboardStats = {
   validEmails: 0,
   validPhones: 0,
   checkedInTeams: 0,
+  invalidEmails: 0,
+  latestCheckIn: null,
 };
 
 function deriveStats(
   rows: ParticipantRow[],
-  totalTeams: number,
-  checkedInTeams: number
+  teams: Team[]
 ): DashboardStats {
+  const checkedIn = teams.filter((t) => t.attendance);
+  const validEmails = rows.filter((r) => r.emailValid).length;
+
+  // Most recent check-in timestamp across all present teams.
+  const latestCheckIn = checkedIn.reduce<string | null>((latest, t) => {
+    if (!t.checkin_time) return latest;
+    if (!latest || t.checkin_time > latest) return t.checkin_time;
+    return latest;
+  }, null);
+
   return {
     totalParticipants: rows.length,
-    totalTeams,
-    validEmails: rows.filter((r) => r.emailValid).length,
+    totalTeams: teams.length,
+    validEmails,
     validPhones: rows.filter((r) => r.phoneValid).length,
-    checkedInTeams,
+    checkedInTeams: checkedIn.length,
+    invalidEmails: rows.length - validEmails,
+    latestCheckIn,
   };
 }
 
 export function useDashboardData(): DashboardData {
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,18 +85,18 @@ export function useDashboardData(): DashboardData {
     setLoading(true);
     setError(null);
     try {
-      const [participantsRes, teamsRes, presentRes] = await Promise.all([
+      // Full team rows (not head-only counts) so analytics can derive the
+      // latest check-in time and the attendance export can list members. The
+      // teams table stays the single source of truth for all team-level stats.
+      const [participantsRes, teamsRes] = await Promise.all([
         supabase
           .from("participants")
           .select("*")
           .order("team_number", { ascending: true }),
         supabase
           .from("teams")
-          .select("team_id", { count: "exact", head: true }),
-        supabase
-          .from("teams")
-          .select("team_id", { count: "exact", head: true })
-          .eq("attendance", true),
+          .select("*")
+          .order("team_id", { ascending: true }),
       ]);
 
       if (participantsRes.error) {
@@ -87,16 +107,14 @@ export function useDashboardData(): DashboardData {
         setError(teamsRes.error.message);
         return;
       }
-      if (presentRes.error) {
-        setError(presentRes.error.message);
-        return;
-      }
 
       const rows = toParticipantRows(
         (participantsRes.data as Participant[]) ?? []
       );
+      const teamRows = (teamsRes.data as Team[]) ?? [];
       setParticipants(rows);
-      setStats(deriveStats(rows, teamsRes.count ?? 0, presentRes.count ?? 0));
+      setTeams(teamRows);
+      setStats(deriveStats(rows, teamRows));
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load dashboard data."
@@ -110,5 +128,5 @@ export function useDashboardData(): DashboardData {
     load();
   }, [load]);
 
-  return { participants, stats, loading, error, refetch: load };
+  return { participants, teams, stats, loading, error, refetch: load };
 }

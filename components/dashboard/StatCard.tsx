@@ -33,6 +33,13 @@ export default function StatCard({
   const displayValue =
     typeof value === "number" ? value.toLocaleString() : value;
 
+  // Long string values (e.g. a formatted timestamp) render a size down so they
+  // fit the card without overflowing; numbers and short strings stay prominent.
+  const valueSize =
+    typeof displayValue === "string" && displayValue.length > 8
+      ? "text-lg"
+      : "text-3xl";
+
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-lilac/20 bg-lilac/[0.03] p-5">
       <div className="flex items-start justify-between">
@@ -49,7 +56,7 @@ export default function StatCard({
         )}
       </div>
       <p
-        className={`text-3xl font-bold tabular-nums leading-none ${ACCENT_TEXT[accent]}`}
+        className={`${valueSize} font-bold tabular-nums leading-tight ${ACCENT_TEXT[accent]}`}
       >
         {displayValue}
       </p>

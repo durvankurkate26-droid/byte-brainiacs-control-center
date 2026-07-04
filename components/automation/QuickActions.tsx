@@ -77,7 +77,8 @@ const ACTIONS: ActionCardProps[] = [
     icon: "✆",
     title: "WhatsApp",
     description: "Generate personalized WhatsApp messages using participant data.",
-    status: "Coming Soon",
+    status: "Ready",
+    href: "#whatsapp-composer",
   },
   {
     icon: "◈",

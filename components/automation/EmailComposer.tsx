@@ -1,15 +1,27 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import type { ParticipantRow } from "@/lib/automationTypes";
 import type { SendEmailsResponseBody } from "@/lib/email";
 
 // ─── Send lifecycle type ──────────────────────────────────────────────────────
 
+/** Cumulative outcome across the initial send plus any retry passes. */
+interface SendSummary {
+  /** Eligible recipients in the original send (denominator for success rate). */
+  total: number;
+  /** Cumulative successful sends across all passes. */
+  sent: number;
+  /** Still-failing recipients after the latest pass. */
+  failures: Array<{ email: string; error: string }>;
+  /** Number of send passes run so far (1 = initial, 2+ = retries). */
+  attempts: number;
+}
+
 type SendState =
   | { status: "idle" }
-  | { status: "sending"; done: number; total: number }
-  | { status: "done"; result: SendEmailsResponseBody }
+  | { status: "sending"; done: number; total: number; isRetry: boolean }
+  | { status: "done"; summary: SendSummary }
   | { status: "error"; message: string };
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -233,14 +245,25 @@ function TokenChip({
 
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 
-function ProgressBar({ done, total }: { done: number; total: number }) {
+function ProgressBar({
+  done,
+  total,
+  isRetry,
+}: {
+  done: number;
+  total: number;
+  isRetry: boolean;
+}) {
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-lilac">Sending…</span>
+        <span className="flex items-center gap-2 text-lilac">
+          <span className="inline-block animate-spin">⟳</span>
+          {isRetry ? "Retrying failed…" : "Sending…"}
+        </span>
         <span className="tabular-nums text-mist">
-          {done} / {total}
+          {done} / {total} · {pct}%
         </span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-lilac/15">
@@ -255,14 +278,43 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
 
 // ─── Send results panel ───────────────────────────────────────────────────────
 
+function SummaryStat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  accent: "lilac" | "magenta" | "mist" | "haze";
+}) {
+  const color = {
+    lilac: "text-lilac",
+    magenta: "text-magenta",
+    mist: "text-mist",
+    haze: "text-haze",
+  }[accent];
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-mist">{label}</p>
+      <p className={`mt-0.5 text-lg font-bold tabular-nums ${color}`}>{value}</p>
+    </div>
+  );
+}
+
 function SendResults({
-  result,
+  summary,
+  onRetry,
   onReset,
 }: {
-  result: SendEmailsResponseBody;
+  summary: SendSummary;
+  onRetry: () => void;
   onReset: () => void;
 }) {
-  const allGood = result.failed === 0;
+  const failed = summary.failures.length;
+  const allGood = failed === 0;
+  const rate =
+    summary.total === 0 ? 0 : Math.round((summary.sent / summary.total) * 100);
+
   return (
     <div
       className={[
@@ -272,35 +324,53 @@ function SendResults({
           : "border-magenta/30 bg-magenta/5",
       ].join(" ")}
     >
-      {/* Summary row */}
+      {/* Headline */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4 text-sm">
-          <span className="font-semibold text-lilac">
-            ✔ Sent: {result.sent}
-          </span>
-          {result.failed > 0 && (
-            <span className="font-semibold text-magenta">
-              ❌ Failed: {result.failed}
-            </span>
-          )}
-        </div>
+        <p
+          className={[
+            "text-sm font-semibold",
+            allGood ? "text-lilac" : "text-magenta",
+          ].join(" ")}
+        >
+          {allGood
+            ? "✔ All emails sent successfully"
+            : `⚠ ${failed} email${failed === 1 ? "" : "s"} still failing`}
+        </p>
         <button
           type="button"
           onClick={onReset}
           className="rounded border border-lilac/30 px-3 py-1 text-xs uppercase tracking-wider text-lilac hover:bg-lilac/10 transition-colors"
         >
-          Send Again
+          Compose New
         </button>
       </div>
 
-      {/* Failure details */}
-      {result.failures.length > 0 && (
-        <div className="space-y-1">
+      {/* Summary metrics */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <SummaryStat label="Recipients" value={summary.total} accent="mist" />
+        <SummaryStat label="Sent" value={summary.sent} accent="lilac" />
+        <SummaryStat
+          label="Failed"
+          value={failed}
+          accent={failed > 0 ? "magenta" : "mist"}
+        />
+        <SummaryStat label="Success Rate" value={`${rate}%`} accent="haze" />
+      </div>
+
+      {summary.attempts > 1 && (
+        <p className="text-[11px] text-mist">
+          After {summary.attempts} attempt{summary.attempts === 1 ? "" : "s"}.
+        </p>
+      )}
+
+      {/* Failure details + retry */}
+      {failed > 0 && (
+        <div className="space-y-2 border-t border-magenta/20 pt-3">
           <p className="text-[10px] uppercase tracking-wider text-mist">
             Failed addresses
           </p>
-          <ul className="max-h-32 overflow-y-auto space-y-1">
-            {result.failures.map((f) => (
+          <ul className="max-h-32 space-y-1 overflow-y-auto">
+            {summary.failures.map((f) => (
               <li key={f.email} className="flex items-start gap-2 text-xs">
                 <span className="shrink-0 text-magenta">✕</span>
                 <span className="text-haze">{f.email}</span>
@@ -308,6 +378,13 @@ function SendResults({
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1 flex items-center gap-2 rounded border border-magenta/50 bg-magenta/10 px-4 py-1.5 text-xs uppercase tracking-wider text-magenta transition-colors hover:bg-magenta/20"
+          >
+            ⟳ Retry Failed ({failed})
+          </button>
         </div>
       )}
     </div>
@@ -366,10 +443,96 @@ Looking forward to seeing you at the hackathon!
   const validCount = participants.filter((p) => p.emailValid).length;
   const isSending = sendState.status === "sending";
 
-  // ─── Send handler ─────────────────────────────────────────────────────────
+  // Holds the simulated-progress interval so it can be cleared on completion,
+  // a new send, or unmount. The API returns a single batched response, so we
+  // approximate live progress by ticking a bar up to ~90% while awaiting it,
+  // then snapping to 100% when the response lands.
+  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopProgress = () => {
+    if (progressTimer.current !== null) {
+      clearInterval(progressTimer.current);
+      progressTimer.current = null;
+    }
+  };
+
+  // Clear any running timer if the component unmounts mid-send.
+  useEffect(() => stopProgress, []);
+
+  // ─── Shared send runner ─────────────────────────────────────────────────────
+  // Sends `targets` through the (unchanged) /api/send-emails endpoint, animates
+  // progress, and folds the outcome into a cumulative summary. Used by both the
+  // initial send and the retry-failed pass.
+  async function runSend(
+    targets: ParticipantRow[],
+    opts: { isRetry: boolean; priorSent: number; total: number; attempt: number }
+  ) {
+    const count = targets.length;
+    setSendState({ status: "sending", done: 0, total: count, isRetry: opts.isRetry });
+
+    // Simulated progress: tick toward 90% at a rate scaled to the batch size.
+    stopProgress();
+    const cap = Math.max(1, Math.floor(count * 0.9));
+    const stepMs = Math.min(220, Math.max(60, Math.round(1400 / count)));
+    let done = 0;
+    progressTimer.current = setInterval(() => {
+      done = Math.min(cap, done + 1);
+      setSendState({ status: "sending", done, total: count, isRetry: opts.isRetry });
+    }, stepMs);
+
+    try {
+      const response = await fetch("/api/send-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: state.subject,
+          body: state.body,
+          participants: targets,
+        }),
+      });
+
+      const data: SendEmailsResponseBody & { error?: string } =
+        await response.json();
+
+      stopProgress();
+
+      // Hard failures (bad key, validation) carry an `error` and no `sent`
+      // field. Batch results — including the all-failed 500 — always carry a
+      // numeric `sent`, so they flow through to the summary below.
+      if (!response.ok && typeof data.sent !== "number") {
+        setSendState({
+          status: "error",
+          message: data.error ?? "Send failed. Please try again.",
+        });
+        return;
+      }
+
+      // Snap to 100% before revealing the summary.
+      setSendState({ status: "sending", done: count, total: count, isRetry: opts.isRetry });
+      await new Promise<void>((r) => setTimeout(r, 350));
+
+      setSendState({
+        status: "done",
+        summary: {
+          total: opts.total,
+          sent: opts.priorSent + (data.sent ?? 0),
+          failures: data.failures ?? [],
+          attempts: opts.attempt,
+        },
+      });
+    } catch (err) {
+      stopProgress();
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Network error — could not reach the send endpoint.";
+      setSendState({ status: "error", message });
+    }
+  }
+
+  // ─── Initial send ──────────────────────────────────────────────────────────
 
   async function handleSend() {
-    // Guard: validate before firing the request
     if (state.subject.trim() === "") {
       setSendState({ status: "error", message: "Subject cannot be empty." });
       return;
@@ -386,42 +549,42 @@ Looking forward to seeing you at the hackathon!
       return;
     }
 
-    const total = validCount;
-    setSendState({ status: "sending", done: 0, total });
+    await runSend(participants, {
+      isRetry: false,
+      priorSent: 0,
+      total: validCount,
+      attempt: 1,
+    });
+  }
 
-    try {
-      const response = await fetch("/api/send-emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subject: state.subject,
-          body: state.body,
-          participants,
-        }),
+  // ─── Retry only the failed recipients ───────────────────────────────────────
+  // Re-sends through the same endpoint with the participant subset whose emails
+  // failed, preserving the cumulative sent count and success-rate denominator.
+  async function handleRetry() {
+    if (sendState.status !== "done") return;
+    const { summary } = sendState;
+
+    const failedEmails = new Set(
+      summary.failures.map((f) => f.email.toLowerCase())
+    );
+    const retryTargets = participants.filter(
+      (p) => p.emailValid && failedEmails.has(p.email.toLowerCase())
+    );
+
+    if (retryTargets.length === 0) {
+      setSendState({
+        status: "error",
+        message: "Could not match the failed addresses back to participants.",
       });
-
-      // The API always returns JSON, even on error statuses
-      const data: SendEmailsResponseBody & { error?: string } =
-        await response.json();
-
-      if (!response.ok && data.error) {
-        // Hard failure before any sends (bad key, empty participants, etc.)
-        setSendState({ status: "error", message: data.error });
-        return;
-      }
-
-      // Animate progress bar to 100% before showing results
-      setSendState({ status: "sending", done: total, total });
-      await new Promise<void>((r) => setTimeout(r, 400));
-
-      setSendState({ status: "done", result: data });
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Network error — could not reach the send endpoint.";
-      setSendState({ status: "error", message });
+      return;
     }
+
+    await runSend(retryTargets, {
+      isRetry: true,
+      priorSent: summary.sent,
+      total: summary.total,
+      attempt: summary.attempts + 1,
+    });
   }
 
   return (
@@ -531,13 +694,15 @@ Looking forward to seeing you at the hackathon!
               <ProgressBar
                 done={sendState.done}
                 total={sendState.total}
+                isRetry={sendState.isRetry}
               />
             )}
 
             {/* Results panel — after completion */}
             {sendState.status === "done" && (
               <SendResults
-                result={sendState.result}
+                summary={sendState.summary}
+                onRetry={handleRetry}
                 onReset={() => setSendState({ status: "idle" })}
               />
             )}
