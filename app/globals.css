@@ -2,17 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
-}
+/* ─── Base ──────────────────────────────────────────────────────────────── */
 
 body {
+  background-color: #16101f;
   background-image:
-    radial-gradient(circle at 20% 0%, rgba(157, 140, 255, 0.08), transparent 40%),
-    radial-gradient(circle at 80% 100%, rgba(255, 61, 176, 0.06), transparent 40%);
+    radial-gradient(circle at 15% -5%, rgba(157, 140, 255, 0.12), transparent 45%),
+    radial-gradient(circle at 85% 110%, rgba(255, 61, 176, 0.1), transparent 45%);
+  background-attachment: fixed;
 }
 
 ::selection {
   background-color: #9d8cff;
   color: #16101f;
+}
+
+/* Themed scrollbars keep long lists on-palette. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(157, 140, 255, 0.35) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(157, 140, 255, 0.3);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(157, 140, 255, 0.5);
+}
+
+/* ─── Reusable component classes ────────────────────────────────────────── */
+
+@layer components {
+  /* The premium card system: rounded, soft border, subtle gradient + blur. */
+  .card {
+    @apply rounded-2xl border border-lilac/15 bg-gradient-to-b from-lilac/[0.06] to-lilac/[0.02] shadow-card backdrop-blur-sm;
+  }
+
+  /* Card that lifts on hover — for interactive tiles and feature cards. */
+  .card-hover {
+    @apply card transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-lilac/40 hover:shadow-card-hover;
+  }
+
+  /* Frosted panel used by the sidebar and sticky headers. */
+  .glass {
+    @apply border border-lilac/10 bg-void/70 backdrop-blur-xl;
+  }
+
+  /* Primary action button. */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-lilac to-magenta px-6 py-3 text-sm font-semibold text-void shadow-glow transition-all duration-200 hover:brightness-110 active:scale-[0.97];
+  }
+
+  /* Secondary / ghost button. */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-lilac/30 px-6 py-3 text-sm font-semibold text-haze transition-all duration-200 hover:border-lilac/60 hover:bg-lilac/10 active:scale-[0.97];
+  }
+
+  /* Small uppercase label. */
+  .eyebrow {
+    @apply font-mono text-[11px] uppercase tracking-[0.2em] text-mist;
+  }
+}
+
+/* ─── Print: strip app chrome so QR sheets print clean ─────────────────── */
+
+@media print {
+  .print\:hidden,
+  [data-app-chrome] {
+    display: none !important;
+  }
+  [data-print-main] {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
 }

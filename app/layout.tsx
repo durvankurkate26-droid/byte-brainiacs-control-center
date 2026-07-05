@@ -1,9 +1,35 @@
 import type { Metadata } from "next";
+import { Space_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
+// ─── Fonts ───────────────────────────────────────────────────────────────────
+// Space Grotesk drives display/headings, Inter carries body copy, and JetBrains
+// Mono is reserved for team IDs, timestamps, and small labels. Exposed as CSS
+// variables so Tailwind's fontFamily tokens (font-heading / font-sans / font-mono)
+// can resolve them anywhere.
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-heading",
+  display: "swap",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "Byte Brainiacs — Control Center",
-  description: "Hackathon control center for Byte Brainiacs",
+  title: "Byte Brainiacs — Hackathon Organizer Platform",
+  description:
+    "Registration, QR management, communication, attendance, and analytics for the Byte Brainiacs hackathon.",
 };
 
 export default function RootLayout({
@@ -12,30 +38,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-void text-haze font-mono antialiased">
-        <header className="border-b border-lilac/20 px-6 py-4">
-          <div className="mx-auto flex max-w-5xl items-center justify-between">
-            <a href="/" className="text-sm tracking-widest text-lilac">
-              02 / BYTE_BRAINIACS
-            </a>
-            <nav className="flex gap-6 text-xs uppercase tracking-wider text-mist">
-              <a href="/" className="hover:text-lilac transition-colors">
-                Teams
-              </a>
-              <a href="/automation" className="hover:text-lilac transition-colors">
-                Control Center
-              </a>
-              <a href="/generate" className="hover:text-lilac transition-colors">
-                Generate QR
-              </a>
-              <a href="/checkin" className="hover:text-magenta transition-colors">
-                Check-In
-              </a>
-            </nav>
-          </div>
-        </header>
-        <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>
+    <html
+      lang="en"
+      className={`${spaceGrotesk.variable} ${inter.variable} ${jetbrainsMono.variable}`}
+    >
+      <body className="min-h-screen bg-void font-sans text-haze antialiased">
+        {children}
       </body>
     </html>
   );
