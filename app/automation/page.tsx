@@ -1,21 +1,30 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Papa from "papaparse";
 
 import type { RawParticipantRow, ParseState } from "@/lib/automationTypes";
 import { findMissingColumns, normaliseRow, deriveStats } from "@/lib/csvParse";
 import { useDashboardData } from "@/lib/useDashboardData";
+import { useParticipantWorkspace } from "@/lib/useParticipantWorkspace";
+import { defaultScope, type ScopeMode, type ScopeSets } from "@/lib/scope";
+import {
+  downloadCsv,
+  participantsToCsv,
+  stampedFilename,
+} from "@/lib/csvExport";
 
 import CsvDropZone from "@/components/automation/CsvDropZone";
 import DatasetCard from "@/components/automation/DatasetCard";
 import ImportPanel from "@/components/automation/ImportPanel";
-import ParticipantTable from "@/components/automation/ParticipantTable";
+import ParticipantWorkspace from "@/components/automation/ParticipantWorkspace";
 import EmailComposer from "@/components/automation/EmailComposer";
 import WhatsAppComposer from "@/components/automation/WhatsAppComposer";
 import ExportPanel from "@/components/automation/ExportPanel";
 import QuickActions from "@/components/automation/QuickActions";
 import AttendanceAnalytics from "@/components/dashboard/AttendanceAnalytics";
+import TeamsSection from "@/components/dashboard/TeamsSection";
+import EmptyState from "@/components/dashboard/EmptyState";
 
 // ─── Section shell ───────────────────────────────────────────────────────────
 
@@ -43,27 +52,7 @@ function Section({
   );
 }
 
-// ─── Empty + loading states ───────────────────────────────────────────────────
-
-function EmptyState({
-  icon,
-  title,
-  message,
-}: {
-  icon: string;
-  title: string;
-  message: string;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-lilac/25 bg-lilac/[0.02] px-6 py-12 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-lilac/10 text-xl text-lilac">
-        {icon}
-      </div>
-      <p className="text-sm font-semibold text-haze">{title}</p>
-      <p className="max-w-md text-xs leading-relaxed text-mist">{message}</p>
-    </div>
-  );
-}
+// ─── Loading skeleton ─────────────────────────────────────────────────────────
 
 function TableSkeleton() {
   return (
@@ -79,12 +68,60 @@ function TableSkeleton() {
   );
 }
 
+/** Smoothly scrolls an in-page section into view (used by bulk actions). */
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ControlCenterPage() {
   // Live dashboard data loaded from the database on open.
   const { participants, teams, stats, loading, error, refetch } =
     useDashboardData();
+
+  // Shared filter + selection state for the whole participant surface.
+  const workspace = useParticipantWorkspace(participants, teams);
+
+  // Per-consumer communication/export scope. Bulk actions set these so that,
+  // e.g., "Email" on the toolbar points the composer at the selected/filtered set.
+  const [emailScope, setEmailScope] = useState<ScopeMode>("all");
+  const [waScope, setWaScope] = useState<ScopeMode>("all");
+  const [exportScope, setExportScope] = useState<ScopeMode>("all");
+
+  const scopeSets: ScopeSets = useMemo(
+    () => ({
+      all: workspace.all,
+      filtered: workspace.filtered,
+      selected: workspace.selected,
+    }),
+    [workspace.all, workspace.filtered, workspace.selected]
+  );
+
+  // The scope a bulk action should target: the explicit selection when present,
+  // otherwise the filtered view (falling back to all when no filters are set).
+  const bulkScope = useMemo(
+    () => defaultScope(scopeSets, workspace.filtersActive),
+    [scopeSets, workspace.filtersActive]
+  );
+
+  const handleBulkEmail = useCallback(() => {
+    setEmailScope(bulkScope);
+    scrollToSection("email-composer");
+  }, [bulkScope]);
+
+  const handleBulkWhatsApp = useCallback(() => {
+    setWaScope(bulkScope);
+    scrollToSection("whatsapp-composer");
+  }, [bulkScope]);
+
+  const handleBulkExport = useCallback(() => {
+    const rows =
+      workspace.selectedCount > 0 ? workspace.selected : workspace.filtered;
+    if (rows.length === 0) return;
+    const name = workspace.selectedCount > 0 ? "selected" : "filtered";
+    downloadCsv(stampedFilename(`participants-${name}`), participantsToCsv(rows));
+  }, [workspace.selected, workspace.filtered, workspace.selectedCount]);
 
   // In-memory CSV parse state — feeds the import panel only.
   const [parseState, setParseState] = useState<ParseState>({ status: "idle" });
@@ -164,6 +201,20 @@ export default function ControlCenterPage() {
         )}
       </Section>
 
+      {/* ── Teams & check-in activity ─────────────────────────────────── */}
+      {!error && (
+        <Section
+          title="Teams & Check-In Activity"
+          hint="Recent check-ins, teams still pending, and a searchable directory. Open any team for members, registration types, and colleges."
+        >
+          <TeamsSection
+            participants={participants}
+            teams={teams}
+            loading={loading}
+          />
+        </Section>
+      )}
+
       {/* ── Quick actions ─────────────────────────────────────────────── */}
       <QuickActions />
 
@@ -201,21 +252,26 @@ export default function ControlCenterPage() {
         )}
       </Section>
 
-      {/* ── Participants (from DB) ────────────────────────────────────── */}
+      {/* ── Participants workspace (filters + bulk actions + table) ────── */}
       <Section
         title="Participant Database"
         hint={
           loading
             ? "Loading participants…"
             : hasParticipants
-            ? "Live records from the database. Search and filter the full roster."
+            ? "Filter the roster, select participants, and act on them in bulk — email, WhatsApp, or export."
             : "No participants yet. Import a CSV above to get started."
         }
       >
         {loading ? (
           <TableSkeleton />
         ) : hasParticipants ? (
-          <ParticipantTable rows={participants} />
+          <ParticipantWorkspace
+            workspace={workspace}
+            onEmail={handleBulkEmail}
+            onWhatsApp={handleBulkWhatsApp}
+            onExport={handleBulkExport}
+          />
         ) : (
           <EmptyState
             icon="◆"
@@ -230,9 +286,15 @@ export default function ControlCenterPage() {
         <Section
           id="export-data"
           title="Export Data"
-          hint="Download the participant roster and live attendance as CSV files for records or reporting."
+          hint="Download the participant roster (all, filtered, or selected) and live attendance as CSV files."
         >
-          <ExportPanel participants={participants} teams={teams} />
+          <ExportPanel
+            scopeSets={scopeSets}
+            scope={exportScope}
+            onScopeChange={setExportScope}
+            filtersActive={workspace.filtersActive}
+            teams={teams}
+          />
         </Section>
       )}
 
@@ -241,9 +303,14 @@ export default function ControlCenterPage() {
         <Section
           id="email-composer"
           title="Email Composer"
-          hint="Compose and send personalized emails to the imported participants."
+          hint="Compose and send personalized emails to all, filtered, or selected participants."
         >
-          <EmailComposer participants={participants} />
+          <EmailComposer
+            scopeSets={scopeSets}
+            scope={emailScope}
+            onScopeChange={setEmailScope}
+            filtersActive={workspace.filtersActive}
+          />
         </Section>
       )}
 
@@ -252,9 +319,14 @@ export default function ControlCenterPage() {
         <Section
           id="whatsapp-composer"
           title="WhatsApp Composer"
-          hint="Compose a template and generate personalized WhatsApp click-to-chat links for each participant."
+          hint="Generate personalized WhatsApp click-to-chat links for all, filtered, or selected participants."
         >
-          <WhatsAppComposer participants={participants} />
+          <WhatsAppComposer
+            scopeSets={scopeSets}
+            scope={waScope}
+            onScopeChange={setWaScope}
+            filtersActive={workspace.filtersActive}
+          />
         </Section>
       )}
     </div>

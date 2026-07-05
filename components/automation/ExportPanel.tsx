@@ -1,6 +1,6 @@
 "use client";
 
-import type { ParticipantRow } from "@/lib/automationTypes";
+import { useMemo } from "react";
 import type { Team } from "@/lib/types";
 import {
   attendanceToCsv,
@@ -8,9 +8,19 @@ import {
   participantsToCsv,
   stampedFilename,
 } from "@/lib/csvExport";
+import {
+  effectiveScope,
+  resolveScope,
+  type ScopeMode,
+  type ScopeSets,
+} from "@/lib/scope";
+import ScopeSelector from "@/components/automation/ScopeSelector";
 
 interface ExportPanelProps {
-  participants: ParticipantRow[];
+  scopeSets: ScopeSets;
+  scope: ScopeMode;
+  onScopeChange: (mode: ScopeMode) => void;
+  filtersActive: boolean;
   teams: Team[];
 }
 
@@ -22,6 +32,7 @@ interface ExportCardProps {
   countLabel: string;
   disabled: boolean;
   onExport: () => void;
+  children?: React.ReactNode;
 }
 
 function ExportCard({
@@ -32,6 +43,7 @@ function ExportCard({
   countLabel,
   disabled,
   onExport,
+  children,
 }: ExportCardProps) {
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-lilac/20 bg-lilac/[0.03] p-5">
@@ -52,6 +64,8 @@ function ExportCard({
         <p className="mt-1 text-xs leading-relaxed text-mist">{description}</p>
       </div>
 
+      {children}
+
       <button
         type="button"
         onClick={onExport}
@@ -69,13 +83,34 @@ function ExportCard({
   );
 }
 
-export default function ExportPanel({ participants, teams }: ExportPanelProps) {
+export default function ExportPanel({
+  scopeSets,
+  scope,
+  onScopeChange,
+  filtersActive,
+  teams,
+}: ExportPanelProps) {
   const checkedIn = teams.filter((t) => t.attendance).length;
+
+  // The participant export follows the chosen scope so organisers can export
+  // just the filtered/selected slice or the whole roster.
+  const activeScope = effectiveScope(scope, scopeSets, filtersActive);
+  const scoped = useMemo(
+    () => resolveScope(activeScope, scopeSets),
+    [activeScope, scopeSets]
+  );
+
+  const scopeName =
+    activeScope === "selected"
+      ? "selected"
+      : activeScope === "filtered"
+      ? "filtered"
+      : "all";
 
   const exportParticipants = () => {
     downloadCsv(
-      stampedFilename("participants"),
-      participantsToCsv(participants)
+      stampedFilename(`participants-${scopeName}`),
+      participantsToCsv(scoped)
     );
   };
 
@@ -88,12 +123,24 @@ export default function ExportPanel({ participants, teams }: ExportPanelProps) {
       <ExportCard
         icon="◆"
         title="Participant Data"
-        description="Full roster with contact details and email/phone validity flags. Ideal for record-keeping and follow-ups."
-        count={participants.length}
+        description="Roster with contact details and email/phone validity flags. Choose which participants to include."
+        count={scoped.length}
         countLabel="participants"
-        disabled={participants.length === 0}
+        disabled={scoped.length === 0}
         onExport={exportParticipants}
-      />
+      >
+        <ScopeSelector
+          scope={activeScope}
+          onChange={onScopeChange}
+          counts={{
+            all: scopeSets.all.length,
+            filtered: scopeSets.filtered.length,
+            selected: scopeSets.selected.length,
+          }}
+          filtersActive={filtersActive}
+          label="export scope"
+        />
+      </ExportCard>
       <ExportCard
         icon="◈"
         title="Attendance Data"

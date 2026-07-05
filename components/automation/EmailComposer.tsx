@@ -3,6 +3,13 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import type { ParticipantRow } from "@/lib/automationTypes";
 import type { SendEmailsResponseBody } from "@/lib/email";
+import {
+  effectiveScope,
+  resolveScope,
+  type ScopeMode,
+  type ScopeSets,
+} from "@/lib/scope";
+import ScopeSelector from "@/components/automation/ScopeSelector";
 
 // ─── Send lifecycle type ──────────────────────────────────────────────────────
 
@@ -27,8 +34,13 @@ type SendState =
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface EmailComposerProps {
-  /** Full parsed participant list. Preview always uses index 0. */
-  participants: ParticipantRow[];
+  /** All/filtered/selected participant lists the send can target. */
+  scopeSets: ScopeSets;
+  /** Which set is currently targeted. */
+  scope: ScopeMode;
+  onScopeChange: (mode: ScopeMode) => void;
+  /** Whether the filtered view differs from all (controls the Filtered option). */
+  filtersActive: boolean;
 }
 
 interface ComposerState {
@@ -393,7 +405,20 @@ function SendResults({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function EmailComposer({ participants }: EmailComposerProps) {
+export default function EmailComposer({
+  scopeSets,
+  scope,
+  onScopeChange,
+  filtersActive,
+}: EmailComposerProps) {
+  // Guard against a scope whose option is no longer shown (e.g. selection
+  // cleared), then resolve the recipients for whichever scope is in effect.
+  const activeScope = effectiveScope(scope, scopeSets, filtersActive);
+  const participants = useMemo(
+    () => resolveScope(activeScope, scopeSets),
+    [activeScope, scopeSets]
+  );
+
   const [state, setState] = useState<ComposerState>({
     subject: "Your Byte Brainiacs Registration — {{team}}",
     body: `Hi {{name}},
@@ -590,14 +615,27 @@ Looking forward to seeing you at the hackathon!
   return (
     <div className="space-y-4">
       {/* Section header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xs uppercase tracking-widest text-mist">
           Email Composer
         </h2>
-        <span className="text-xs text-mist">
-          <span className="text-lilac">{validCount}</span> valid recipient
-          {validCount !== 1 ? "s" : ""}
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <ScopeSelector
+            scope={activeScope}
+            onChange={onScopeChange}
+            counts={{
+              all: scopeSets.all.length,
+              filtered: scopeSets.filtered.length,
+              selected: scopeSets.selected.length,
+            }}
+            filtersActive={filtersActive}
+            label="email recipients"
+          />
+          <span className="text-xs text-mist">
+            <span className="text-lilac">{validCount}</span> valid recipient
+            {validCount !== 1 ? "s" : ""}
+          </span>
+        </div>
       </div>
 
       {/* Two-column layout: composer left, preview right */}

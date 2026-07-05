@@ -1,18 +1,29 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ParticipantRow } from "@/lib/automationTypes";
 import {
   buildWhatsAppTargets,
   WHATSAPP_TOKENS,
   type WhatsAppTarget,
 } from "@/lib/whatsapp";
+import {
+  effectiveScope,
+  resolveScope,
+  type ScopeMode,
+  type ScopeSets,
+} from "@/lib/scope";
+import ScopeSelector from "@/components/automation/ScopeSelector";
 
 // ─── Props ─────────────────────────────────────────────────────────────────
 
 interface WhatsAppComposerProps {
-  /** Full participant list from the database (source of truth). */
-  participants: ParticipantRow[];
+  /** All/filtered/selected participant lists the links can target. */
+  scopeSets: ScopeSets;
+  /** Which set is currently targeted. */
+  scope: ScopeMode;
+  onScopeChange: (mode: ScopeMode) => void;
+  /** Whether the filtered view differs from all (controls the Filtered option). */
+  filtersActive: boolean;
 }
 
 const DEFAULT_TEMPLATE = `Hi {{name}}! 👋
@@ -123,11 +134,23 @@ function RecipientRow({ target }: { target: WhatsAppTarget }) {
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
-export default function WhatsAppComposer({ participants }: WhatsAppComposerProps) {
+export default function WhatsAppComposer({
+  scopeSets,
+  scope,
+  onScopeChange,
+  filtersActive,
+}: WhatsAppComposerProps) {
   const [template, setTemplate] = useState(DEFAULT_TEMPLATE);
   const [showPreview, setShowPreview] = useState(false);
   const [page, setPage] = useState(1);
   const [copied, setCopied] = useState(false);
+
+  // Guard against a stale scope, then resolve which participants get links.
+  const activeScope = effectiveScope(scope, scopeSets, filtersActive);
+  const participants = useMemo(
+    () => resolveScope(activeScope, scopeSets),
+    [activeScope, scopeSets]
+  );
 
   // Resolve every participant to a link. Recomputes as the template changes so
   // the preview + list stay live.
@@ -169,19 +192,32 @@ export default function WhatsAppComposer({ participants }: WhatsAppComposerProps
   return (
     <div className="space-y-4">
       {/* Section header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xs uppercase tracking-widest text-mist">
           WhatsApp Composer
         </h2>
-        <span className="text-xs text-mist">
-          <span className="text-lilac">{messageable.length}</span> messageable
-          {skipped > 0 && (
-            <>
-              {" · "}
-              <span className="text-magenta/80">{skipped}</span> skipped
-            </>
-          )}
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <ScopeSelector
+            scope={activeScope}
+            onChange={onScopeChange}
+            counts={{
+              all: scopeSets.all.length,
+              filtered: scopeSets.filtered.length,
+              selected: scopeSets.selected.length,
+            }}
+            filtersActive={filtersActive}
+            label="WhatsApp recipients"
+          />
+          <span className="text-xs text-mist">
+            <span className="text-lilac">{messageable.length}</span> messageable
+            {skipped > 0 && (
+              <>
+                {" · "}
+                <span className="text-magenta/80">{skipped}</span> skipped
+              </>
+            )}
+          </span>
+        </div>
       </div>
 
       {/* Two-column: editor + preview */}
