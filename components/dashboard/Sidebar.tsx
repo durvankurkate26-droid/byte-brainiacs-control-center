@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import LogoutButton from "@/components/auth/LogoutButton";
+
 // Professional sidebar navigation. Desktop renders a fixed rail; mobile renders
 // a top bar with a collapsible drawer. The active route is highlighted from the
 // current pathname.
@@ -89,13 +91,16 @@ function Brand() {
 
 function Footer() {
   return (
-    <div className="border-t border-lilac/10 px-2 pt-4">
-      <p className="font-mono text-[11px] tracking-wider text-mist">
-        Byte Brainiacs
-      </p>
-      <p className="font-mono text-[11px] tracking-wider text-mist/60">
-        Version 1.0
-      </p>
+    <div className="flex flex-col gap-4">
+      <LogoutButton />
+      <div className="border-t border-lilac/10 px-2 pt-4">
+        <p className="font-mono text-[11px] tracking-wider text-mist">
+          Byte Brainiacs
+        </p>
+        <p className="font-mono text-[11px] tracking-wider text-mist/60">
+          Version 1.0
+        </p>
+      </div>
     </div>
   );
 }
