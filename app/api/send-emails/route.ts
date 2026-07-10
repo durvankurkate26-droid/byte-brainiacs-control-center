@@ -6,7 +6,7 @@
 // summary. One failed send never aborts the rest of the batch.
 
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
+import nodemailer, { type Transporter } from "nodemailer";
 import {
   interpolateTemplate,
   plainTextToHtml,
@@ -17,36 +17,43 @@ import {
   type SendResult,
 } from "@/lib/email";
 
-// ─── Resend client ────────────────────────────────────────────────────────────
-// Instantiated here (not in lib/email.ts) so the SDK import stays server-only.
-// The constructor throws at call time if the key is missing, which surfaces as
-// a 500 with a clear message rather than a silent wrong-key 403 mid-batch.
+// ─── Gmail SMTP transporter ─────────────────────────────────────────────────
+// Built here (not in lib/email.ts) so the SMTP client stays server-only.
+// The factory throws at call time if credentials are missing, which surfaces
+// as a 500 with a clear message rather than a silent auth failure mid-batch.
+//
+// GMAIL_APP_PASSWORD must be a Google "App Password" (16 chars, 2FA enabled),
+// not the account's normal login password.
 
-function getResendClient(): Resend {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
+function getTransporter(): Transporter {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+
+  if (!user || !pass) {
     throw new Error(
-      "RESEND_API_KEY is not set. Add it to your .env.local file."
+      "GMAIL_USER and GMAIL_APP_PASSWORD must be set. Add them to your .env.local file."
     );
   }
-  return new Resend(apiKey);
+
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: { user, pass },
+  });
 }
 
 // ─── FROM address ─────────────────────────────────────────────────────────────
-// Resend requires a verified domain. During development you can use the
-// Resend sandbox address: onboarding@resend.dev (sends only to the account
-// owner). Set RESEND_FROM_EMAIL in .env.local once your domain is verified.
+// Gmail sends as the authenticated account, so the FROM address is derived
+// from GMAIL_USER. The display name keeps the branded "Byte Brainiacs" label.
 
 function getFromAddress(): string {
-  return (
-    process.env.RESEND_FROM_EMAIL ?? "Byte Brainiacs <onboarding@resend.dev>"
-  );
+  const user = process.env.GMAIL_USER ?? "";
+  return `Byte Brainiacs <${user}>`;
 }
 
 // ─── Per-participant send ─────────────────────────────────────────────────────
 
 async function sendOne(
-  resend: Resend,
+  transporter: Transporter,
   from: string,
   rawSubject: string,
   rawBody: string,
@@ -56,21 +63,12 @@ async function sendOne(
   const html = plainTextToHtml(interpolateTemplate(rawBody, participant));
 
   try {
-    const { error } = await resend.emails.send({
+    await transporter.sendMail({
       from,
-      to: [participant.email],
+      to: participant.email,
       subject,
       html,
     });
-
-    if (error) {
-      // Resend returns a typed error object on partial failures
-      return {
-        email: participant.email,
-        success: false,
-        error: error.message,
-      };
-    }
 
     return { email: participant.email, success: true };
   } catch (err) {
@@ -125,11 +123,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 4. Initialise Resend (fails fast if key missing)
-  let resend: Resend;
+  // 4. Initialise the Gmail SMTP transporter (fails fast if credentials missing)
+  let transporter: Transporter;
   let from: string;
   try {
-    resend = getResendClient();
+    transporter = getTransporter();
     from = getFromAddress();
   } catch (err) {
     const message =
@@ -140,11 +138,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 5. Send all — sequentially to respect Resend's rate limits on free plans.
-  //    Switch to Promise.all with a concurrency limiter for higher-volume plans.
+  // 5. Send all — sequentially to respect Gmail's SMTP sending limits.
+  //    Switch to Promise.all with a concurrency limiter for higher-volume tiers.
   const results: SendResult[] = [];
   for (const participant of eligible) {
-    const result = await sendOne(resend, from, subject, body, participant);
+    const result = await sendOne(transporter, from, subject, body, participant);
     results.push(result);
   }
 

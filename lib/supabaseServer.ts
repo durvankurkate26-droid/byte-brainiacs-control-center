@@ -8,7 +8,7 @@ import type { Database } from "./types";
 // never reach the browser.
 //
 // Built lazily via a factory (not a module-level singleton) so that a missing
-// key surfaces as a clear 500 at request time — mirroring getResendClient()
+// key surfaces as a clear 500 at request time — mirroring getTransporter()
 // in app/api/send-emails/route.ts — rather than crashing the whole server on
 // import when the env var happens to be absent.
 
